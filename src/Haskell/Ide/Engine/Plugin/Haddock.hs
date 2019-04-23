@@ -17,21 +17,21 @@ import           Data.IORef
 import Data.Function
 import Data.Maybe
 import Data.List
-import           System.Directory
-import           System.FilePath
 import           GHC
-import           GhcMonad
-import qualified GhcMod.Monad                                 as GM
 import qualified GhcMod.LightGhc                              as GM
-import           Haskell.Ide.Engine.MonadTypes
+import qualified GhcMod.Monad                                 as GM
+import           GhcMonad
 import           Haskell.Ide.Engine.MonadFunctions
-import           Haskell.Ide.Engine.Plugin.HieExtras
+import           Haskell.Ide.Engine.MonadTypes
 import qualified Haskell.Ide.Engine.Plugin.Hoogle             as Hoogle
 import           Haskell.Ide.Engine.PluginUtils
-import qualified Language.Haskell.LSP.Types as J
+import           Haskell.Ide.Engine.Support.HieExtras
 import           HscTypes
+import qualified Language.Haskell.LSP.Types as J
 import           Name
 import           Packages
+import           System.Directory
+import           System.FilePath
 
 
 import Documentation.Haddock
@@ -175,7 +175,7 @@ renderMarkDown =
          , markupOrderedList =
              T.unlines . zipWith (\i n -> T.pack (show (i :: Int)) <> ". " <> n) [1..]
          , markupDefList = T.unlines . map (\(a, b) -> a <> " :: " <> b)
-         , markupCodeBlock = \x -> "\n```haskell\n" <> removeInner x <> "```"
+         , markupCodeBlock = \x -> "\n```haskell\n" <> removeInner x <> "\n```\n"
          , markupHyperlink = \h ->
              T.pack $ maybe
                (hyperlinkUrl h)
@@ -188,12 +188,12 @@ renderMarkDown =
          , markupProperty = \s -> T.unlines
              ["\n```haskell"
              ,"prop> " <> removeInner (T.pack s)
-             ,"```\n"]
+             ,"\n```\n"]
          , markupExample = T.unlines . map (\e -> T.pack $ unlines $
              ["\n```haskell"
              ,"> " <> exampleExpression e
              ] ++ exampleResult e ++
-             ["```\n"])
+             ["\n```\n"])
          , markupHeader = \h ->
              T.replicate (headerLevel h) "#" <> " " <> headerTitle h <> "\n"
 #if __GLASGOW_HASKELL__ >= 804
@@ -223,7 +223,7 @@ hoverProvider doc pos = pluginGetFile "haddock:hoverProvider" doc $ \fp ->
           return $ case mdocu of
             Nothing -> mname <> minfo
             Just docu -> docu <> "\n\n" <> minfo
-    return [J.Hover (J.List $ fmap J.PlainString docs) Nothing]
+    return [J.Hover (J.HoverContents $ J.MarkupContent J.MkMarkdown (T.intercalate J.sectionSeparator docs)) Nothing]
   where
     pickName [] = Nothing
     pickName [x] = Just x
