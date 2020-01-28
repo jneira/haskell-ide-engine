@@ -143,8 +143,7 @@ lint uri = pluginGetFile "lint: " uri $ \fp -> do
 runLint :: FilePath -> [String] -> ExceptT [Diagnostic] IO [Idea]
 runLint fp args = do
   (flags,classify,hint) <- liftIO $ Hlint.argsSettings args
-  let exts = EnableExtension TypeApplications:extensions (Hlint.hseFlags flags)
-      myflags = flags { Hlint.hseFlags = (Hlint.hseFlags flags) { extensions = exts } }
+  let myflags = addExtensionsFlag flags
   res <- bimapExceptT parseErrorToDiagnostic id $ ExceptT $ Hlint.parseModuleEx myflags fp Nothing
   pure $ Hlint.applyHints classify hint [res]
 
@@ -300,11 +299,14 @@ hlintOpts lintFile mpos =
     opts = maybe "" posOpt mpos
   in [lintFile, "--quiet", "--refactor", "--refactor-options=" ++ opts ]
 
+addExtensionsFlag :: Hlint.ParseFlags -> Hlint.ParseFlags
+addExtensionsFlag flags = flags { Hlint.hseFlags = (Hlint.hseFlags flags) { extensions = exts } }
+  where exts = EnableExtension TypeApplications:extensions (Hlint.hseFlags flags)
+
 runHlint :: MonadIO m => FilePath -> [String] -> ExceptT String m [Idea]
 runHlint fp args =
   do (flags,classify,hint) <- liftIO $ Hlint.argsSettings args
-     let exts = EnableExtension TypeApplications:extensions (Hlint.hseFlags flags)
-         myflags = flags { Hlint.hseFlags = (Hlint.hseFlags flags) { extensions = exts } }
+     let myflags = addExtensionsFlag flags
      res <- bimapExceptT showParseError id $ ExceptT $ liftIO $ Hlint.parseModuleEx myflags fp Nothing
      pure $ Hlint.applyHints classify hint [res]
 
