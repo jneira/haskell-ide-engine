@@ -33,7 +33,8 @@ import           Haskell.Ide.Engine.PluginUtils
 import           Language.Haskell.Exts.SrcLoc
 import           Language.Haskell.Exts.Parser
 import           Language.Haskell.Exts.Extension
-import           Language.Haskell.HLint4           as Hlint
+import           Language.Haskell.HLint4           ( Idea, Severity(..) )
+import qualified Language.Haskell.HLint4           as Hlint
 import qualified Language.Haskell.LSP.Types        as LSP
 import qualified Language.Haskell.LSP.Types.Lens   as LSP
 import           Refact.Apply
@@ -141,10 +142,11 @@ lint uri = pluginGetFile "lint: " uri $ \fp -> do
 
 runLint :: FilePath -> [String] -> ExceptT [Diagnostic] IO [Idea]
 runLint fp args = do
-  (flags,classify,hint) <- liftIO $ argsSettings args
-  let myflags = flags { hseFlags = (hseFlags flags) { extensions = EnableExtension TypeApplications:extensions (hseFlags flags)}}
-  res <- bimapExceptT parseErrorToDiagnostic id $ ExceptT $ parseModuleEx myflags fp Nothing
-  pure $ applyHints classify hint [res]
+  (flags,classify,hint) <- liftIO $ Hlint.argsSettings args
+  let exts = EnableExtension TypeApplications:extensions (Hlint.hseFlags flags)
+      myflags = flags { Hlint.hseFlags = (Hlint.hseFlags flags) { extensions = exts } }
+  res <- bimapExceptT parseErrorToDiagnostic id $ ExceptT $ Hlint.parseModuleEx myflags fp Nothing
+  pure $ Hlint.applyHints classify hint [res]
 
 parseErrorToDiagnostic :: Hlint.ParseError -> [Diagnostic]
 parseErrorToDiagnostic (Hlint.ParseError l msg contents) =
@@ -186,16 +188,16 @@ bimapExceptT f g (ExceptT m) = ExceptT (fmap h m) where
 stripIgnores :: [Idea] -> [Idea]
 stripIgnores ideas = filter notIgnored ideas
   where
-    notIgnored idea = ideaSeverity idea /= Ignore
+    notIgnored idea = Hlint.ideaSeverity idea /= Ignore
 
 -- ---------------------------------------------------------------------
 
 hintToDiagnostic :: Idea -> Diagnostic
 hintToDiagnostic idea
   = Diagnostic
-      { _range    = ss2Range (ideaSpan idea)
-      , _severity = Just (hintSeverityMap $ ideaSeverity idea)
-      , _code     = Just (LSP.StringValue $ T.pack $ ideaHint idea)
+      { _range    = ss2Range (Hlint.ideaSpan idea)
+      , _severity = Just (hintSeverityMap $ Hlint.ideaSeverity idea)
+      , _code     = Just (LSP.StringValue $ T.pack $ Hlint.ideaHint idea)
       , _source   = Just "hlint"
       , _message  = idea2Message idea
       , _relatedInformation = Nothing
@@ -204,11 +206,12 @@ hintToDiagnostic idea
 -- ---------------------------------------------------------------------
 
 idea2Message :: Idea -> T.Text
-idea2Message idea = T.unlines $ [T.pack $ ideaHint idea, "Found:", "  " <> T.pack (ideaFrom idea)]
-                               <> toIdea <> map (T.pack . show) (ideaNote idea)
+idea2Message idea = T.unlines $ [T.pack $ Hlint.ideaHint idea, "Found:", "  " 
+                               <> T.pack (Hlint.ideaFrom idea)]
+                               <> toIdea <> map (T.pack . show) (Hlint.ideaNote idea)
   where
     toIdea :: [T.Text]
-    toIdea = case ideaTo idea of
+    toIdea = case Hlint.ideaTo idea of
       Nothing -> []
       Just i  -> [T.pack "Why not:", T.pack $ "  " ++ i]
 
@@ -245,7 +248,7 @@ applyHint :: FilePath -> Maybe OneHint -> (FilePath -> FilePath) -> IdeM (Either
 applyHint fp mhint fileMap = do
   runExceptT $ do
     ideas <- getIdeas fp mhint
-    let commands = map (show &&& ideaRefactoring) ideas
+    let commands = map (show &&& Hlint.ideaRefactoring) ideas
     liftIO $ logm $ "applyHint:apply=" ++ show commands
     -- set Nothing as "position" for "applyRefactorings" because
     -- applyRefactorings expects the provided position to be _within_ the scope
@@ -287,8 +290,8 @@ filterIdeas :: OneHint -> [Idea] -> [Idea]
 filterIdeas (OneHint (Position l c) title) ideas =
   let
     title' = T.unpack title
-    ideaPos = (srcSpanStartLine &&& srcSpanStartColumn) . ideaSpan
-  in filter (\i -> ideaHint i == title' && ideaPos i == (l+1, c+1)) ideas
+    ideaPos = (srcSpanStartLine &&& srcSpanStartColumn) . Hlint.ideaSpan
+  in filter (\i -> Hlint.ideaHint i == title' && ideaPos i == (l+1, c+1)) ideas
 
 hlintOpts :: FilePath -> Maybe Position -> [String]
 hlintOpts lintFile mpos =
@@ -299,10 +302,11 @@ hlintOpts lintFile mpos =
 
 runHlint :: MonadIO m => FilePath -> [String] -> ExceptT String m [Idea]
 runHlint fp args =
-  do (flags,classify,hint) <- liftIO $ argsSettings args
-     let myflags = flags { hseFlags = (hseFlags flags) { extensions = EnableExtension TypeApplications:extensions (hseFlags flags)}}
-     res <- bimapExceptT showParseError id $ ExceptT $ liftIO $ parseModuleEx myflags fp Nothing
-     pure $ applyHints classify hint [res]
+  do (flags,classify,hint) <- liftIO $ Hlint.argsSettings args
+     let exts = EnableExtension TypeApplications:extensions (Hlint.hseFlags flags)
+         myflags = flags { Hlint.hseFlags = (Hlint.hseFlags flags) { extensions = exts } }
+     res <- bimapExceptT showParseError id $ ExceptT $ liftIO $ Hlint.parseModuleEx myflags fp Nothing
+     pure $ Hlint.applyHints classify hint [res]
 
 showParseError :: Hlint.ParseError -> String
 showParseError (Hlint.ParseError location message content) =
